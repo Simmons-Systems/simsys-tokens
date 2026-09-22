@@ -1,0 +1,20 @@
+name: test
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Install every extra: the adapter tests import fastapi/flask at module
+      # scope, and the integration tests exercise the optional telemetry sinks.
+      # A [dev]-only venv fails those at collection with ModuleNotFoundError,
+      # which reads as broken code rather than a missing environment.
+      - run: pip install -e '.[dev,fastapi,flask,logevent,metrics]'
+      - run: pytest -v

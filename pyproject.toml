@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "simsys-tokens"
+version = "0.1.0"
+description = "Drop-in API-token store, auth and management surface for FastAPI and Flask apps. One install_tokens() call; sha256-at-rest; operator-gated CRUD."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Simmons Systems" }]
+keywords = ["tokens", "authentication", "fastapi", "flask", "api-tokens"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Security",
+]
+
+# Stdlib only by default. Every integration is an optional extra, and the
+# mechanism behind each is an injectable callable — so an adopter can wire their
+# own logging or metrics backend without taking a dependency on ours.
+dependencies = []
+
+[project.optional-dependencies]
+fastapi = ["fastapi>=0.100", "starlette>=0.27"]
+flask = ["flask>=3.0"]
+logevent = ["simsys-logevent>=1.0.0"]
+metrics = ["simsys-metrics>=2.0.0"]
+simsys = ["simsys-logevent>=1.0.0", "simsys-metrics>=2.0.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "uvicorn>=0.30"]
+
+# NOTE: simsys_tokens.cli does not exist until Task 12. The entry point is
+# declared here so pyproject.toml is written once, but invoking the
+# `simsys-tokens` command before Task 12 raises ImportError. That is expected.
+[project.scripts]
+simsys-tokens = "simsys_tokens.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Simmons-Systems/simsys-tokens"
+Repository = "https://github.com/Simmons-Systems/simsys-tokens"
+Issues = "https://github.com/Simmons-Systems/simsys-tokens/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["simsys_tokens"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
