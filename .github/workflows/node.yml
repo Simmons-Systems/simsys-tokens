@@ -1,0 +1,58 @@
+name: Node CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "node/**"
+      - "tests/vectors.json" # the shared cross-runtime fixture
+      - ".github/workflows/node.yml"
+  pull_request:
+    paths:
+      - "node/**"
+      - "tests/vectors.json"
+      - ".github/workflows/node.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node (${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
+    strategy:
+      fail-fast: false
+      # Floor is 22.13 — the first release where node:sqlite works without a
+      # flag. Node 20 is end-of-life and is deliberately not in the matrix.
+      matrix:
+        node-version: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: node/package-lock.json
+
+      - name: Install dependencies (locked)
+        run: npm ci
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Run vitest
+        run: npm test
+
+      # Typechecks src AND tests: tsconfig.json excludes tests/ because it drives
+      # the build, so without this a test could call an API the .d.ts never
+      # declares and still compile clean.
+      - name: Typecheck (src + tests)
+        run: npm run typecheck
+
+      - name: Pack tarball (smoke test)
+        run: npm pack --dry-run

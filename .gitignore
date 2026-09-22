@@ -13,3 +13,8 @@ dist/
 
 # Local-only architecture context for Feature Factory (never committed)
 .stargazer-*
+
+# Node package
+node_modules/
+*.tgz
+.ruff_cache/
