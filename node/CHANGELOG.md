@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- **Next.js App Router adapter** — `@simsys/tokens/next` exports `collection`,
+  `item` and `asset` handler sets for the three route files.
+- **SvelteKit adapter** — `@simsys/tokens/svelte` exports the same three handler
+  sets over `RequestEvent`.
+- Neither file-routed adapter depends on its framework: both take Web
+  `Request`/`Response`, and SvelteKit's `RequestEvent` is typed structurally, so
+  `next` and `@sveltejs/kit` are not peers.
+- Shared adapter plumbing (`http.ts`, `options.ts`) so the JSON-body rules, the
+  component asset and the Store/Endpoints wiring exist once rather than per
+  adapter. Exported for anyone writing a fourth adapter.
+
+### Changed
+- **BREAKING: the root entry no longer re-exports `installTokens`.** It is now the
+  framework-free core, so importing `@simsys/tokens` pulls in no framework. Use
+  `import { installTokens } from "@simsys/tokens/express"` (0.1.x's
+  `@simsys/tokens` import). This is what lets the Next.js and SvelteKit adapters
+  exist without every adopter installing Express.
+- `express` moved from a required to an **optional** peer dependency — only the
+  `/express` subpath needs it.
+
 ### Fixed
 - `simsys-tokens --help` (and no arguments) printed an error and exited 1; both now
   print usage and exit 0.

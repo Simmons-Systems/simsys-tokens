@@ -10,80 +10,28 @@
  * Python adapters enforce. If the adopter already ran a JSON parser, `req.body`
  * is reused as-is.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import express from "express";
-import type { Express, Request, Response, Router } from "express";
+import type { Express, Request, Router } from "express";
 
-import { Endpoints, type Limits, type SessionIdentity } from "./core.js";
-import { DEFAULT as DEFAULT_EMITTER, Emitter, setSink, type EventSink } from "./events.js";
-import { importEntries } from "./importer.js";
-import { Store, ensureSchema } from "./store.js";
+import type { SessionIdentity } from "./core.js";
+import { componentSource, readJsonIncoming } from "./http.js";
+import { buildCore, type BaseTokenOptions } from "./options.js";
 
-export interface TokenOptions {
-  service: string;
-  dbPath: string;
-  siteOrigin: string;
+export interface TokenOptions extends BaseTokenOptions {
   sessionResolver: (req: Request) => SessionIdentity | null;
-  limits?: Limits;
-  emitter?: Emitter;
-  /** Reconfigures the process default sink; pass `emitter` for an isolated one. */
-  eventSink?: EventSink;
-  /** Existing config tokens to import at mount. */
-  importTokens?: Array<Record<string, unknown>>;
   apiPrefix?: string;
   assetPath?: string;
-  authHeader?: string;
 }
-
-/** Ship the component from src/ (which `files` includes), so one asset serves
- * both the repo and the published package without a copy-during-build step. */
-const ASSET = fileURLToPath(new URL("../src/static/simsys-tokens.js", import.meta.url));
 
 function normalizePath(p: string): string {
   return `/${p.replace(/^\/+|\/+$/g, "")}`;
 }
 
-async function rawBody(req: Request): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  return Buffer.concat(chunks);
-}
-
-async function readJsonBody(
-  req: Request,
-): Promise<{ body?: Record<string, unknown>; error?: string }> {
-  const existing = (req as Request & { body?: unknown }).body;
-  if (existing !== undefined && existing !== null && typeof existing === "object" && !Buffer.isBuffer(existing)) {
-    return { body: existing as Record<string, unknown> };
-  }
-  const raw = req.readableEnded ? Buffer.alloc(0) : await rawBody(req);
-  if (raw.length === 0) return { body: {} };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw.toString("utf8"));
-  } catch {
-    return { error: "request body is not valid JSON" };
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { error: "request body must be a JSON object" };
-  }
-  return { body: parsed as Record<string, unknown> };
-}
-
-function build(opts: TokenOptions): { router: Router; store: Store } {
-  ensureSchema(opts.dbPath, { create: true });
-  if (opts.eventSink) setSink(opts.eventSink);
+function build(opts: TokenOptions): { router: Router; core: ReturnType<typeof buildCore> } {
   const api = normalizePath(opts.apiPrefix ?? "/api/tokens");
   const asset = normalizePath(opts.assetPath ?? "/simsys-tokens.js");
-  const authHeader = opts.authHeader ?? "Authorization";
-  const store = new Store(opts.dbPath, opts.service);
-  const endpoints = new Endpoints(store, opts.siteOrigin, {
-    emitter: opts.emitter,
-    limits: opts.limits,
-  });
-  if (opts.importTokens) importEntries(store, opts.importTokens, { emitter: opts.emitter });
+  const core = buildCore(opts);
+  const { endpoints, authHeader } = core;
 
   const router = express.Router();
 
@@ -120,7 +68,7 @@ function build(opts: TokenOptions): { router: Router; store: Store } {
     const { identity, bearer, origin, referer } = ctx(req);
     const refusal = endpoints.authz(identity, bearer); // BEFORE decoding the body
     if (refusal) return void res.status(refusal.status).json(refusal.body);
-    const { body, error } = await readJsonBody(req);
+    const { body, error } = await readJsonIncoming(req);
     if (error) return void res.status(400).json({ error });
     const out = endpoints.handleCreate(identity, bearer, body!, origin, referer);
     res.status(out.status).json(out.body);
@@ -136,7 +84,7 @@ function build(opts: TokenOptions): { router: Router; store: Store } {
     const { identity, bearer, origin, referer } = ctx(req);
     const refusal = endpoints.authz(identity, bearer);
     if (refusal) return void res.status(refusal.status).json(refusal.body);
-    const { body, error } = await readJsonBody(req);
+    const { body, error } = await readJsonIncoming(req);
     if (error) return void res.status(400).json({ error });
     const out = endpoints.handlePatch(identity, bearer, req.params.handle, body!, origin, referer);
     res.status(out.status).json(out.body);
@@ -151,25 +99,22 @@ function build(opts: TokenOptions): { router: Router; store: Store } {
   // Deliberately OUTSIDE the API prefix: under file-based routing a path under
   // it collides with the :handle route.
   router.get(asset, (_req, res) => {
-    res.type("application/javascript").send(readFileSync(ASSET, "utf8"));
+    res.type("application/javascript").send(componentSource());
   });
 
-  return { router, store };
+  return { router, core };
 }
 
 export interface InstallTokens {
-  (app: Express, opts: TokenOptions): Store;
+  (app: Express, opts: TokenOptions): ReturnType<typeof build>["core"]["store"];
   express(opts: TokenOptions): Router;
 }
 
 export const installTokens: InstallTokens = Object.assign(
-  (app: Express, opts: TokenOptions): Store => {
-    const { router, store } = build(opts);
+  (app: Express, opts: TokenOptions) => {
+    const { router, core } = build(opts);
     app.use(router);
-    return store;
+    return core.store;
   },
   { express: (opts: TokenOptions): Router => build(opts).router },
 );
-
-export { DEFAULT_EMITTER as defaultEmitter, Store, ensureSchema };
-export type { EventSink, Limits, Request, Response, SessionIdentity };

@@ -121,3 +121,23 @@ describe("Express adapter", () => {
     expect(typeof store.mint).toBe("function");
   });
 });
+
+describe("package surface", () => {
+  it("the root entry exports no adapter, so importing it pulls in no framework", async () => {
+    // Pins the 0.2.0 breaking change: installTokens lives on the adapter subpaths.
+    const root = (await import("../src/index.js")) as Record<string, unknown>;
+    expect(root.installTokens).toBeUndefined();
+    expect(typeof root.authenticate).toBe("function");
+    expect(typeof root.buildCore).toBe("function");
+  });
+
+  it("each adapter subpath exports its own mount set", async () => {
+    const next = (await import("../src/next.js")) as Record<string, unknown>;
+    const svelte = (await import("../src/svelte.js")) as Record<string, unknown>;
+    for (const mod of [next, svelte]) {
+      expect(typeof mod.collection).toBe("function");
+      expect(typeof mod.item).toBe("function");
+      expect(typeof mod.asset).toBe("function");
+    }
+  });
+});

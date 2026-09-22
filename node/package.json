@@ -1,6 +1,6 @@
 {
   "name": "@simsys/tokens",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Drop-in API-token store, auth and management surface for Express apps. sha256-at-rest; operator-gated CRUD; no dependencies.",
   "type": "module",
   "engines": {
@@ -26,6 +26,14 @@
     "./express": {
       "types": "./dist/express.d.ts",
       "import": "./dist/express.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte.d.ts",
+      "import": "./dist/svelte.js"
     }
   },
   "bin": {
@@ -56,5 +64,10 @@
   },
   "peerDependencies": {
     "express": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
   }
 }

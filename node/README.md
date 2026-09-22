@@ -1,7 +1,7 @@
 # @simsys/tokens
 
-Drop-in API-token store, auth and management surface for Express apps. One
-`installTokens()` call gives you a token store, an auth function,
+Drop-in API-token store, auth and management surface for **Express, Next.js and
+SvelteKit**. One mount call gives you a token store, an auth function,
 operator-gated management endpoints, and a drop-in web component.
 
 - **sha256 at rest.** Only `sha256(<full token>)` is stored; the raw value is
@@ -24,15 +24,28 @@ npm install @simsys/tokens
 Requires **Node >= 22.13** — the first release where `node:sqlite` works without
 a flag. (Node 20 is end-of-life.)
 
-`express` is a **peer dependency** (>= 5): this package mounts on your app's
-Express and must share its Router class rather than bundle a second copy. npm 7+
-installs it for you if you do not already have it.
+`express` is an **optional peer dependency** (>= 5), needed only by
+`@simsys/tokens/express`: the adapter mounts on your app's Express and must share
+its Router class rather than bundle a second copy. The root entry and the
+Next.js/SvelteKit adapters import no framework at all, so none of them require a
+peer.
 
-## Quickstart
+## Mount forms
+
+The root entry (`@simsys/tokens`) is the **framework-free core** — `authenticate`,
+`Endpoints`, `Store`, `Emitter` and the hashing helpers. Every adapter is its own
+subpath, so installing this package never pulls in a framework you do not use:
+
+```js
+import { installTokens } from "@simsys/tokens/express";
+import { collection, item, asset } from "@simsys/tokens/next";    // or /svelte
+```
+
+### Express
 
 ```js
 import express from "express";
-import { installTokens } from "@simsys/tokens";
+import { installTokens } from "@simsys/tokens/express";
 
 const app = express();
 
@@ -47,11 +60,48 @@ installTokens(app, {
 });
 ```
 
-Or mount a router yourself:
+Or mount a router yourself: `app.use(installTokens.express({ ...same options }))`.
+
+### Next.js (App Router)
 
 ```js
-app.use(installTokens.express({ ...same options }));
+// app/api/tokens/route.ts
+import { collection } from "@simsys/tokens/next";
+export const { GET, POST } = collection(opts);
+
+// app/api/tokens/[handle]/route.ts
+import { item } from "@simsys/tokens/next";
+export const { GET, PATCH, DELETE } = item(opts);
+
+// app/simsys-tokens.js/route.ts
+import { asset } from "@simsys/tokens/next";
+export const { GET } = asset();
 ```
+
+### SvelteKit
+
+```js
+// src/routes/api/tokens/+server.ts
+import { collection } from "@simsys/tokens/svelte";
+export const { GET, POST } = collection(opts);
+
+// src/routes/api/tokens/[handle]/+server.ts
+import { item } from "@simsys/tokens/svelte";
+export const { GET, PATCH, DELETE } = item(opts);
+
+// src/routes/simsys-tokens.js/+server.ts
+import { asset } from "@simsys/tokens/svelte";
+export const { GET } = asset();
+```
+
+> **The asset must live outside the API prefix.** Under file-based routing a path
+> under `/api/tokens/*` resolves to the `[handle]` route, which answers a `GET`
+> with a 405 — so the component never loads. That is why it is its own route file.
+
+Both file-routed adapters take Web `Request`/`Response` (SvelteKit additionally
+receives a structurally-typed `RequestEvent`), so neither requires `next` or
+`@sveltejs/kit` as a dependency. The routes' own paths are chosen by your file
+layout, so `apiPrefix`/`assetPath` apply to Express only.
 
 Then drop the component on any page:
 

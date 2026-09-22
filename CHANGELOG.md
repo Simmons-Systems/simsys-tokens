@@ -8,10 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- The repository now also ships **`@simsys/tokens`** for Express (Node >= 22.13)
-  — see [`node/CHANGELOG.md`](node/CHANGELOG.md). It shares the token format and
-  the store schema with the Python package, so a single store file is readable by
-  either runtime.
+- The repository now also ships **`@simsys/tokens`** (Node >= 22.13) for Express,
+  Next.js and SvelteKit — see [`node/CHANGELOG.md`](node/CHANGELOG.md). It shares
+  the token format and the store schema with the Python package, so a single store
+  file is readable by either runtime.
 
 ## [0.2.0]
 

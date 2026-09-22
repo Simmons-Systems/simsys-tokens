@@ -10,7 +10,7 @@ schema, so a single `tokens.db` is readable by either runtime:
 | Package | Runtime | README |
 |---|---|---|
 | `simsys-tokens` (this README) | Python — FastAPI, Flask | below |
-| [`@simsys/tokens`](node/README.md) | Node — Express | [`node/README.md`](node/README.md) |
+| [`@simsys/tokens`](node/README.md) | Node — Express, Next.js, SvelteKit | [`node/README.md`](node/README.md) |
 
 - **sha256 at rest.** Only `sha256(<full token>)` is stored; the raw value is
   shown once at creation and is never persisted or logged.
