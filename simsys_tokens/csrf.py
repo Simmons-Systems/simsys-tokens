@@ -4,6 +4,7 @@ Fail closed. A request carrying NEITHER Origin nor Referer is rejected: a
 default-allow there is a complete bypass, and it is the branch a test must cover
 explicitly because the foreign-Origin case passes either way.
 """
+
 from __future__ import annotations
 
 from urllib.parse import urlsplit

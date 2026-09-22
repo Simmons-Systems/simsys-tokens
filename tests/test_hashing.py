@@ -5,7 +5,12 @@ import pathlib
 import pytest
 
 from simsys_tokens.hashing import (
-    handle_of, mint_token, token_hash, validate_handle, validate_role, validate_service,
+    handle_of,
+    mint_token,
+    token_hash,
+    validate_handle,
+    validate_role,
+    validate_service,
 )
 
 VECTORS = json.loads((pathlib.Path(__file__).parent / "vectors.json").read_text())

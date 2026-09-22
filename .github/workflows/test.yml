@@ -2,6 +2,17 @@ name: test
 on: [push, pull_request]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
   pytest:
     runs-on: ubuntu-latest
     strategy:
@@ -18,3 +29,22 @@ jobs:
       # which reads as broken code rather than a missing environment.
       - run: pip install -e '.[dev,fastapi,flask,logevent,metrics]'
       - run: pytest -v
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      # The component is package data; a wheel that drops it serves a 404 for
+      # /simsys-tokens.js and every adopter's page breaks silently.
+      - run: unzip -l dist/*.whl | grep -q simsys_tokens/static/simsys-tokens.js
+      - name: install the built wheel and import it
+        run: |
+          WHEEL=$(ls dist/*.whl)
+          python -m venv /tmp/whl
+          /tmp/whl/bin/pip install "${WHEEL}[fastapi]"
+          /tmp/whl/bin/python -c "import simsys_tokens; from simsys_tokens.fastapi import install_tokens; print(simsys_tokens.__version__)"

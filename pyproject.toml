@@ -1,14 +1,15 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "simsys-tokens"
-version = "0.1.0"
+version = "0.2.0"
 description = "Drop-in API-token store, auth and management surface for FastAPI and Flask apps. One install_tokens() call; sha256-at-rest; operator-gated CRUD."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Simmons Systems" }]
 keywords = ["tokens", "authentication", "fastapi", "flask", "api-tokens"]
 classifiers = [
@@ -34,11 +35,14 @@ flask = ["flask>=3.0"]
 logevent = ["simsys-logevent>=1.0.0"]
 metrics = ["simsys-metrics>=2.0.0"]
 simsys = ["simsys-logevent>=1.0.0", "simsys-metrics>=2.0.0"]
-dev = ["pytest>=8.0", "httpx>=0.27", "uvicorn>=0.30"]
+dev = [
+  "pytest>=8.0",
+  "httpx>=0.27",
+  "uvicorn>=0.30",
+  "ruff>=0.6",
+  "build>=1.2",
+]
 
-# NOTE: simsys_tokens.cli does not exist until Task 12. The entry point is
-# declared here so pyproject.toml is written once, but invoking the
-# `simsys-tokens` command before Task 12 raises ImportError. That is expected.
 [project.scripts]
 simsys-tokens = "simsys_tokens.cli:main"
 
@@ -52,3 +56,12 @@ packages = ["simsys_tokens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# E501 is line-length, which ruff format owns; a hand-wrapped line is not a defect.
+ignore = ["E501"]

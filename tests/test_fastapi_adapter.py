@@ -24,8 +24,9 @@ def client(tmp_path):
 
 
 def test_create_then_list_round_trip(client):
-    r = client.post("/api/tokens", json={"label": "scout", "role": "agent"},
-                    headers={"Origin": SITE})
+    r = client.post(
+        "/api/tokens", json={"label": "scout", "role": "agent"}, headers={"Origin": SITE}
+    )
     assert r.status_code == 201
     raw = r.json()["token"]
     rows = client.get("/api/tokens").json()["tokens"]
@@ -56,23 +57,30 @@ def test_anonymous_with_malformed_json_is_401_not_400(client):
     # mean the server parsed an unauthenticated caller's payload, and would leak
     # that the endpoint exists and is parsing.
     client.state["identity"] = None
-    r = client.post("/api/tokens", content=b"{not json",
-                    headers={"Origin": SITE, "Content-Type": "application/json"})
+    r = client.post(
+        "/api/tokens",
+        content=b"{not json",
+        headers={"Origin": SITE, "Content-Type": "application/json"},
+    )
     assert r.status_code == 401
 
 
 def test_json_without_a_content_type_header_is_accepted(client):
     # Parity anchor: Flask's get_json() would refuse this. Both adapters parse
     # the raw bytes, so both must accept it.
-    r = client.post("/api/tokens", content=b'{"label":"noct","role":"agent"}',
-                    headers={"Origin": SITE})
+    r = client.post(
+        "/api/tokens", content=b'{"label":"noct","role":"agent"}', headers={"Origin": SITE}
+    )
     assert r.status_code == 201
 
 
 def test_import_tokens_runs_at_mount(tmp_path):
     app = FastAPI()
     store = install_tokens(
-        app, service="demo", db_path=tmp_path / "t.db", site_origin=SITE,
+        app,
+        service="demo",
+        db_path=tmp_path / "t.db",
+        site_origin=SITE,
         session_resolver=lambda r: SessionIdentity("leon", True),
         import_tokens=[{"role": "agent", "key": "demo-agent-" + "d" * 64}],
     )
@@ -86,16 +94,20 @@ def test_event_sink_is_installed(tmp_path):
     seen = []
     app = FastAPI()
     install_tokens(
-        app, service="demo", db_path=tmp_path / "t.db", site_origin=SITE,
+        app,
+        service="demo",
+        db_path=tmp_path / "t.db",
+        site_origin=SITE,
         session_resolver=lambda r: SessionIdentity("leon", True),
         event_sink=lambda event, fields: seen.append(event),
     )
     try:
-        TestClient(app).post("/api/tokens", json={"label": "s", "role": "agent"},
-                             headers={"Origin": SITE})
+        TestClient(app).post(
+            "/api/tokens", json={"label": "s", "role": "agent"}, headers={"Origin": SITE}
+        )
         assert "token.created" in seen
     finally:
-        events.set_sink(None)   # reset the process-wide sink
+        events.set_sink(None)  # reset the process-wide sink
 
 
 def test_raising_resolver_is_401_not_500(tmp_path):
@@ -107,7 +119,46 @@ def test_raising_resolver_is_401_not_500(tmp_path):
         raise RuntimeError("adopter bug")
 
     install_tokens(
-        app, service="demo", db_path=tmp_path / "t.db", site_origin=SITE,
+        app,
+        service="demo",
+        db_path=tmp_path / "t.db",
+        site_origin=SITE,
         session_resolver=_boom,
     )
     assert _TC(app).get("/api/tokens").status_code == 401
+
+
+def test_custom_api_prefix_and_asset_path(tmp_path):
+    app = FastAPI()
+    install_tokens(
+        app,
+        service="demo",
+        db_path=tmp_path / "t.db",
+        site_origin=SITE,
+        session_resolver=lambda r: SessionIdentity("leon", True),
+        api_prefix="/internal/tokens",
+        asset_path="/tok.js",
+    )
+    c = TestClient(app)
+    assert c.get("/api/tokens").status_code == 404
+    assert c.get("/simsys-tokens.js").status_code == 404
+    r = c.post("/internal/tokens", json={"label": "a", "role": "agent"}, headers={"Origin": SITE})
+    assert r.status_code == 201
+    assert c.get("/internal/tokens").status_code == 200
+    assert c.get("/tok.js").status_code == 200
+
+
+def test_custom_auth_header(tmp_path):
+    app = FastAPI()
+    install_tokens(
+        app,
+        service="demo",
+        db_path=tmp_path / "t.db",
+        site_origin=SITE,
+        session_resolver=lambda r: SessionIdentity("leon", True),
+        auth_header="X-Auth",
+    )
+    c = TestClient(app)
+    # A bearer token presented under the custom header must still be refused.
+    r = c.get("/api/tokens", headers={"X-Auth": "Bearer demo-agent-" + "a" * 64})
+    assert r.status_code == 403

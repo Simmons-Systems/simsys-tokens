@@ -5,15 +5,38 @@ from simsys_tokens.cli import main
 
 def test_mint_init_creates_the_store(tmp_path, capsys):
     db = tmp_path / "sub" / "tokens.db"
-    rc = main(["mint", "--init", "--service", "demo", "--role", "admin",
-               "--label", "bootstrap", "--db", str(db)])
+    rc = main(
+        [
+            "mint",
+            "--init",
+            "--service",
+            "demo",
+            "--role",
+            "admin",
+            "--label",
+            "bootstrap",
+            "--db",
+            str(db),
+        ]
+    )
     assert rc == 0 and db.exists()
     assert "demo-admin-" in capsys.readouterr().out
 
 
 def test_mint_without_init_refuses_a_missing_store(tmp_path):
-    rc = main(["mint", "--service", "demo", "--role", "admin",
-               "--label", "x", "--db", str(tmp_path / "nope.db")])
+    rc = main(
+        [
+            "mint",
+            "--service",
+            "demo",
+            "--role",
+            "admin",
+            "--label",
+            "x",
+            "--db",
+            str(tmp_path / "nope.db"),
+        ]
+    )
     assert rc != 0
 
 
@@ -27,15 +50,26 @@ def test_list_never_creates_a_store(tmp_path):
 
 def test_revoke_never_creates_a_store(tmp_path):
     db = tmp_path / "nope.db"
-    assert main(["revoke", "--service", "demo", "--handle", "0" * 16,
-                 "--db", str(db)]) != 0
+    assert main(["revoke", "--service", "demo", "--handle", "0" * 16, "--db", str(db)]) != 0
     assert not db.exists()
 
 
 def test_list_json_shows_no_secret(tmp_path, capsys):
     db = tmp_path / "tokens.db"
-    main(["mint", "--init", "--service", "demo", "--role", "agent",
-          "--label", "scout", "--db", str(db)])
+    main(
+        [
+            "mint",
+            "--init",
+            "--service",
+            "demo",
+            "--role",
+            "agent",
+            "--label",
+            "scout",
+            "--db",
+            str(db),
+        ]
+    )
     raw = capsys.readouterr().out.strip().splitlines()[-1]
     main(["list", "--service", "demo", "--db", str(db), "--json"])
     out = capsys.readouterr().out
@@ -52,17 +86,31 @@ def test_list_reports_truncation_instead_of_silently_paging(tmp_path, capsys, mo
     # monkeypatching the module attribute afterwards leaves the bound default at
     # 500 and the patch is silently inert.
     import simsys_tokens.store as store_mod
+
     real = store_mod.Store.list_rows
     monkeypatch.setattr(
-        store_mod.Store, "list_rows",
+        store_mod.Store,
+        "list_rows",
         lambda self, include_revoked=False, limit=2: real(
             self, include_revoked=include_revoked, limit=limit
         ),
     )
     db = tmp_path / "tokens.db"
     for i in range(3):
-        main(["mint", "--init", "--service", "demo", "--role", "agent",
-              "--label", f"t{i}", "--db", str(db)])
+        main(
+            [
+                "mint",
+                "--init",
+                "--service",
+                "demo",
+                "--role",
+                "agent",
+                "--label",
+                f"t{i}",
+                "--db",
+                str(db),
+            ]
+        )
     capsys.readouterr()
     rc = main(["list", "--service", "demo", "--db", str(db)])
     assert rc == 1 and "truncated" in capsys.readouterr().err
@@ -70,8 +118,9 @@ def test_list_reports_truncation_instead_of_silently_paging(tmp_path, capsys, mo
 
 def test_revoking_an_already_revoked_token_reports_no_change(tmp_path, capsys):
     db = tmp_path / "tokens.db"
-    main(["mint", "--init", "--service", "demo", "--role", "agent",
-          "--label", "s", "--db", str(db)])
+    main(
+        ["mint", "--init", "--service", "demo", "--role", "agent", "--label", "s", "--db", str(db)]
+    )
     handle = capsys.readouterr().out.split("handle: ")[1].split("\n")[0]
     main(["revoke", "--service", "demo", "--handle", handle, "--db", str(db)])
     capsys.readouterr()
@@ -81,8 +130,106 @@ def test_revoking_an_already_revoked_token_reports_no_change(tmp_path, capsys):
 
 def test_created_by_is_attributable(tmp_path, capsys):
     db = tmp_path / "tokens.db"
-    main(["mint", "--init", "--service", "demo", "--role", "agent",
-          "--label", "s", "--db", str(db)])
+    main(
+        ["mint", "--init", "--service", "demo", "--role", "agent", "--label", "s", "--db", str(db)]
+    )
     capsys.readouterr()
     main(["list", "--service", "demo", "--db", str(db), "--json"])
     assert json.loads(capsys.readouterr().out)[0]["created_by"].startswith("cli:")
+
+
+def test_mint_with_expires_at(tmp_path, capsys):
+    db = tmp_path / "tokens.db"
+    main(
+        [
+            "mint",
+            "--init",
+            "--service",
+            "demo",
+            "--role",
+            "agent",
+            "--label",
+            "short",
+            "--expires-at",
+            "2000-01-01T00:00:00+00:00",
+            "--db",
+            str(db),
+        ]
+    )
+    raw = capsys.readouterr().out.strip().splitlines()[-1]
+    rc = main(["verify", "--service", "demo", "--db", str(db), "--token", raw])
+    assert rc == 1
+    assert "expired" in capsys.readouterr().out
+
+
+def test_mint_json_emits_the_secret_once(tmp_path, capsys):
+    db = tmp_path / "tokens.db"
+    main(
+        [
+            "mint",
+            "--init",
+            "--service",
+            "demo",
+            "--role",
+            "agent",
+            "--label",
+            "j",
+            "--db",
+            str(db),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["token"].startswith("demo-agent-")
+    assert payload["label"] == "j"
+
+
+def test_verify_live_revoked_and_unknown(tmp_path, capsys):
+    import io
+    import sys as _sys
+
+    db = tmp_path / "tokens.db"
+    main(
+        ["mint", "--init", "--service", "demo", "--role", "agent", "--label", "v", "--db", str(db)]
+    )
+    raw = capsys.readouterr().out.strip().splitlines()[-1]
+
+    # Live, via --token.
+    assert main(["verify", "--service", "demo", "--db", str(db), "--token", raw]) == 0
+    assert "live" in capsys.readouterr().out
+
+    # Also readable from stdin, and a bare token (no "Bearer ") is accepted.
+    old = _sys.stdin
+    _sys.stdin = io.StringIO(raw + "\n")
+    try:
+        assert main(["verify", "--service", "demo", "--db", str(db)]) == 0
+    finally:
+        _sys.stdin = old
+    capsys.readouterr()
+
+    # Unknown digest.
+    assert (
+        main(["verify", "--service", "demo", "--db", str(db), "--token", "demo-agent-" + "0" * 64])
+        == 1
+    )
+    assert "unknown" in capsys.readouterr().err
+
+
+def test_verify_reports_revoked(tmp_path, capsys):
+    db = tmp_path / "tokens.db"
+    main(
+        ["mint", "--init", "--service", "demo", "--role", "agent", "--label", "r", "--db", str(db)]
+    )
+    out = capsys.readouterr().out
+    handle = out.split("handle: ")[1].split("\n")[0]
+    raw = out.strip().splitlines()[-1]
+    main(["revoke", "--service", "demo", "--handle", handle, "--db", str(db)])
+    capsys.readouterr()
+    assert main(["verify", "--service", "demo", "--db", str(db), "--token", raw]) == 1
+    assert "revoked" in capsys.readouterr().out
+
+
+def test_verify_never_creates_a_store(tmp_path):
+    db = tmp_path / "nope.db"
+    assert main(["verify", "--service", "demo", "--db", str(db), "--token", "x"]) != 0
+    assert not db.exists()
