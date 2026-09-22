@@ -74,9 +74,6 @@ jobs:
       # asset, so registry publication must be purely additive. If npm is down or
       # the token lapses, the tarball must still ship.
       - name: Publish to npm
-        # --loglevel http so the registry's own response (the PUT status) is in
-        # the log. A publish that "succeeds" locally but leaves no version on the
-        # registry is otherwise indistinguishable from a bad token.
-        run: npm publish --provenance --access public --loglevel http
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
