@@ -10,3 +10,6 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+
+# Local-only architecture context for Feature Factory (never committed)
+.stargazer-*

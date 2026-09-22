@@ -41,6 +41,13 @@ dev = [
   "uvicorn>=0.30",
   "ruff>=0.6",
   "build>=1.2",
+  # The suite imports the adapters and exercises the telemetry sinks at module
+  # scope, so [dev] must install them — a bare [dev] venv fails collection.
+  "fastapi>=0.100",
+  "starlette>=0.27",
+  "flask>=3.0",
+  "simsys-logevent>=1.0.0",
+  "simsys-metrics>=2.0.0",
 ]
 
 [project.scripts]
