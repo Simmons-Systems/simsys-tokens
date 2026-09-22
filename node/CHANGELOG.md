@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+- The `bin` entry pointed at `./dist/cli.js`; npm normalises the value, treats a
+  leading `./` as invalid, and silently drops the entry at publish time — so the
+  installed package had no `simsys-tokens` command. It is now `dist/cli.js`.
+
 ## [0.1.0]
 
 ### Added
