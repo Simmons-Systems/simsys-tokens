@@ -71,6 +71,19 @@ def test_auth_failed_on_unknown_digest_is_throttled(captured, store):
     assert len(captured) == 1, "repeat unknown digest must not re-emit within 60s"
 
 
+def test_first_auth_failed_emits_on_a_freshly_booted_host(captured, store, monkeypatch):
+    # time.monotonic() counts from an arbitrary epoch: on a freshly booted host
+    # (a CI runner) it is < 60, so a `now - 0.0 < 60` guard would throttle the
+    # FIRST failure away entirely. Caught in CI after passing on a long-up box.
+    import types
+
+    import simsys_tokens.core as core
+
+    monkeypatch.setattr(core, "time", types.SimpleNamespace(monotonic=lambda: 5.0))
+    authenticate(store, "Bearer demo-agent-" + "0" * 64)
+    assert [p["event"] for p in captured] == ["token.auth_failed"]
+
+
 def test_first_use_fires_once_and_only_once(captured, store):
     raw, handle = store.mint("agent", "scout", "cli:leon@dev")
     authenticate(store, f"Bearer {raw}")

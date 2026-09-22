@@ -33,11 +33,16 @@ def _well_formed(raw: str) -> bool:
 def _emit_auth_failed_once(store: Store, *, key: str, event_kwargs: dict) -> None:
     """Emit token.auth_failed at most once per AUTH_FAILED_THROTTLE_SECONDS per
     key per process. Without this a scanner presenting random bearers fires one
-    event per request and destroys the signal the rollout depends on."""
+    event per request and destroys the signal the rollout depends on.
+
+    ``key in store.last_auth_failed`` rather than ``.get(key, 0.0)``: monotonic
+    counts from an arbitrary epoch, so on a freshly booted host now < 60 and a
+    ``now - 0.0 < 60`` guard would throttle the FIRST failure away entirely.
+    """
     now = time.monotonic()
     with store._touch_lock:
-        last = store.last_auth_failed.get(key, 0.0)
-        if now - last < AUTH_FAILED_THROTTLE_SECONDS:
+        last = store.last_auth_failed.get(key)
+        if last is not None and now - last < AUTH_FAILED_THROTTLE_SECONDS:
             return
         store._touch_note(store.last_auth_failed, key, now)
     events.token_auth_failed(store.service, **event_kwargs)
