@@ -95,6 +95,14 @@ describe("CLI", () => {
     expect(text(out)).toContain("already revoked");
   });
 
+  it("prints usage for --help and no args, and exits 0", () => {
+    expect(main(["--help"])).toBe(0);
+    expect(text(out)).toContain("Usage: simsys-tokens");
+    out.length = 0;
+    expect(main([])).toBe(0);
+    expect(text(out)).toContain("Usage: simsys-tokens");
+  });
+
   it("records an attributable created_by", () => {
     const db = tempDb();
     main(["mint", "--init", "--service", "demo", "--role", "agent", "--label", "s", "--db", db]);

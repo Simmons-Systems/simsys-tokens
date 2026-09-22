@@ -77,7 +77,28 @@ export interface CliIo {
   readStdin?: () => string;
 }
 
+const USAGE = `Usage: simsys-tokens <command> --service <name> [options]
+
+Commands:
+  mint   --init --role <role> --label <label> [--expires-at <iso>] [--json]
+  list   [--json]
+  revoke --handle <16-hex> [--json]
+  verify [--token <raw>] [--json]        (token is read from stdin if omitted)
+
+Options:
+  --service <name>   required; also the token prefix (^[a-z0-9_]{1,32}$)
+  --db <path>        default /var/lib/<service>/tokens.db
+  --json             machine-readable output
+
+Only 'mint --init' creates the store; list, revoke and verify fail loudly
+rather than create an empty one. verify exits 0 only for a live token.`;
+
 export function main(argv: string[], io: CliIo = {}): number {
+  const first = argv[0];
+  if (!first || first === "-h" || first === "--help" || first === "help") {
+    process.stdout.write(`${USAGE}\n`);
+    return 0;
+  }
   let args: Args;
   try {
     args = parseArgs(argv);

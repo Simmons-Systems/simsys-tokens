@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `simsys-tokens --help` (and no arguments) printed an error and exited 1; both now
+  print usage and exit 0.
+
+
 ## [0.1.3]
 
 ### Fixed
