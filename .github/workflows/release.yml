@@ -73,7 +73,18 @@ jobs:
       # Ordered AFTER the GitHub release on purpose: consumers can pin the .tgz
       # asset, so registry publication must be purely additive. If npm is down or
       # the token lapses, the tarball must still ship.
+      # Idempotent: a tag that is moved or re-pushed fires this workflow again,
+      # and npm hard-rejects a version that already exists ("You cannot publish
+      # over the previously published versions"). That is not a release failure —
+      # there is simply nothing to publish — so check first and skip.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on the registry — nothing to publish."
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
