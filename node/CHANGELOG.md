@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Fixed
+- `express` is now declared as a **peer dependency**. It was only a devDependency,
+  so a consumer's `npm i @simsys/tokens` produced a package whose root entry
+  (`@simsys/tokens`) and `@simsys/tokens/express` both failed at import with
+  `ERR_MODULE_NOT_FOUND: express` — the root re-exports the Express adapter, which
+  imports express at module scope. Declaring the peer also makes npm 7+ install it
+  for an app that does not already have it.
+
 ## [0.1.1]
 
 ### Fixed

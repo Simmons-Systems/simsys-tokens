@@ -1,6 +1,6 @@
 {
   "name": "@simsys/tokens",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Drop-in API-token store, auth and management surface for Express apps. sha256-at-rest; operator-gated CRUD; no dependencies.",
   "type": "module",
   "engines": {
@@ -52,5 +52,8 @@
     "supertest": "^7.0.0",
     "typescript": "^7.0.0",
     "vitest": "^5.0.0"
+  },
+  "peerDependencies": {
+    "express": ">=5.0.0"
   }
 }

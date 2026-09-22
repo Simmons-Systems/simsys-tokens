@@ -24,6 +24,10 @@ npm install @simsys/tokens
 Requires **Node >= 22.13** — the first release where `node:sqlite` works without
 a flag. (Node 20 is end-of-life.)
 
+`express` is a **peer dependency** (>= 5): this package mounts on your app's
+Express and must share its Router class rather than bundle a second copy. npm 7+
+installs it for you if you do not already have it.
+
 ## Quickstart
 
 ```js
