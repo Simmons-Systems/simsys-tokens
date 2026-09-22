@@ -1,0 +1,16 @@
+{
+  // Typecheck the TESTS as well as src.
+  //
+  // tsconfig.json deliberately excludes tests/ because it drives the BUILD, and
+  // test files must not land in dist/. The consequence is that `tsc --noEmit`
+  // would never typecheck a single test file — a test calling an API the .d.ts
+  // does not declare would compile clean. rootDir is overridden because tests/
+  // sits outside src/, and noEmit means nothing is written regardless.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  }
+}

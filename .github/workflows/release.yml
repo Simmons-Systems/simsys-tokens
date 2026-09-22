@@ -1,16 +1,79 @@
 name: release
 on:
   push:
-    tags: ["python-v*"]
+    tags: ["python-v*", "node-v*"]
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  python-release:
+    if: startsWith(github.ref_name, 'python-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: gh release create "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+
+  node-release:
+    name: "Node: pack, attest, release, publish"
+    if: startsWith(github.ref_name, 'node-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: node/package-lock.json
+          # REQUIRED for `npm publish` to authenticate. Setting NODE_AUTH_TOKEN
+          # alone does nothing: npm reads its credential from an .npmrc, and this
+          # input is what makes setup-node write that .npmrc with an
+          # ${NODE_AUTH_TOKEN} placeholder. Without it the env var is ignored and
+          # publish fails ENEEDAUTH — indistinguishable from a bad token.
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies (locked)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run vitest
+        run: npm test
+
+      # Pack into runner.temp so the glob below cannot pick up a stray in-tree
+      # tarball. npm names the scoped package `simsys-tokens-<version>.tgz`.
+      - name: Pack release tarball
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "${{ runner.temp }}/simsys-tokens-*.tgz"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ${{ runner.temp }}/simsys-tokens-*.tgz
+
+      # --provenance continues the attestation above onto the registry entry;
+      # it needs id-token: write, which this job declares.
+      #
+      # Ordered AFTER the GitHub release on purpose: consumers can pin the .tgz
+      # asset, so registry publication must be purely additive. If npm is down or
+      # the token lapses, the tarball must still ship.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
