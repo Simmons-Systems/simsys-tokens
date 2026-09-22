@@ -1,0 +1,29 @@
+{
+  "_comment": "Read by BOTH the Python and Node test suites. A change here must keep both green.",
+  "hash_vectors": [
+    {
+      "raw": "demo-read-0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "0e4c9d7ec774c596676ffb47dbee17f323c13823c0b23236536372d73cf6a187"
+    },
+    {
+      "raw": "svc-write-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "sha256": "e68d055d9e83be5b7a8960e7586c583818662e7f865986081866985106ee61cb"
+    }
+  ],
+  "valid_slugs": [
+    "demo",
+    "my_app",
+    "svc2",
+    "a",
+    "a1_2"
+  ],
+  "invalid_slugs": [
+    "my-app",
+    "Demo",
+    "",
+    "with space",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "agent\n",
+    "\nagent"
+  ]
+}
