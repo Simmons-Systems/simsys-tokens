@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Fixed
+- **`simsys-tokens` did nothing when installed.** cli.ts gated its own execution
+  on `import.meta.url === \`file://${process.argv[1]}\``, which is never true
+  through `node_modules/.bin/simsys-tokens` — argv[1] is the symlink, import.meta.url
+  the real path — so the command exited 0 without running. Found by installing the
+  published package and checking the exit code, not the link. The entry point is now
+  a separate `src/bin.ts`, and a test spawns the built bin so the wrapper is covered.
+
 ## [0.1.2]
 
 ### Fixed

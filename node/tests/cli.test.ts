@@ -1,4 +1,6 @@
-import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, symlinkSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -99,5 +101,36 @@ describe("CLI", () => {
     out.length = 0;
     main(["list", "--service", "demo", "--db", db, "--json"]);
     expect(JSON.parse(text(out))[0].created_by).toMatch(/^cli:/);
+  });
+});
+
+describe("the installed bin", () => {
+  // Run the BUILT entry through a symlink, exactly as node_modules/.bin does.
+  // The previous entry gated itself on `import.meta.url === file://argv[1]`, which
+  // is never true through a symlink, so the CLI exited 0 having done nothing —
+  // a wrapper that looked installed and did not work.
+  function runBin(args: string[]): { code: number; stdout: string } {
+    const db = tempDb();
+    const link = resolve(dirname(db), "simsys-tokens");
+    symlinkSync(resolve("dist/bin.js"), link);
+    try {
+      const stdout = execFileSync("node", [link, ...args, "--db", db], { encoding: "utf8" });
+      return { code: 0, stdout };
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string };
+      return { code: e.status ?? -1, stdout: e.stdout ?? "" };
+    }
+  }
+
+  it("fails loudly on a missing store rather than exiting 0", () => {
+    expect(runBin(["list", "--service", "demo"]).code).not.toBe(0);
+  });
+
+  it("mints through the bin and prints the token once", () => {
+    const { code, stdout } = runBin([
+      "mint", "--init", "--service", "demo", "--role", "agent", "--label", "s",
+    ]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("demo-agent-");
   });
 });

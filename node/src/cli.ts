@@ -188,6 +188,5 @@ export function main(argv: string[], io: CliIo = {}): number {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  process.exit(main(process.argv.slice(2)));
-}
+// The executable entry point is src/bin.ts, not this module — see the comment
+// there for why an import.meta.url guard does not work through node_modules/.bin.
