@@ -1,19 +1,31 @@
-"""The token store: schema, migrations and row access.
+"""The token store: schema, migrations, and row access.
 
 ensure_schema() is the ONE creation/migration routine. install_tokens() and every
 CLI subcommand call it — on a fresh install the bootstrap token is minted before
 the service has ever started, so the CLI must be able to create the schema too,
 and two independent creation paths would drift.
 """
+
 from __future__ import annotations
 
 import contextlib
+import os
 import sqlite3
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .errors import TokenError
+from .hashing import (
+    handle_of,
+    mint_token,
+    token_hash,
+    validate_handle,
+    validate_role,
+    validate_service,
+)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS tokens (
@@ -23,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tokens (
   role         TEXT NOT NULL,
   priority     INTEGER,
   rate_limit   TEXT,
+  expires_at   TEXT,
   created_at   TEXT NOT NULL,
   created_by   TEXT NOT NULL,
   last_used_at TEXT,
@@ -48,6 +61,51 @@ CREATE TABLE IF NOT EXISTS _schema_version (
 );
 """
 
+# Columns added to `tokens` after v1, with the migration that introduces each.
+# `CREATE TABLE IF NOT EXISTS` never alters an existing table, so a bare edit to
+# _DDL silently no-ops on adopted stores — every such column needs a step here.
+_COLUMN_MIGRATIONS = {
+    "expires_at": "ALTER TABLE tokens ADD COLUMN expires_at TEXT",
+}
+
+MAX_LIMIT = 500
+# Bound for the per-process throttle maps. Thousands of tokens fleet-wide means
+# a few thousand entries max in practice; 5000 with oldest-first eviction keeps
+# memory flat if a scanner hammers random digests.
+TOUCH_MAP_MAX = 5000
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def normalize_expires_at(value) -> str | None:
+    """Return a UTC ISO-8601 timestamp, or None. Raises ValueError on garbage.
+
+    Normalising to one format is load-bearing: expiry is compared as a string,
+    so ``2026-01-01T00:00:00+00:00`` and a naive ``2026-01-01T00:00:00`` would
+    otherwise compare against each other as different-length text.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("expires_at must be an ISO-8601 timestamp or null")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"expires_at is not an ISO-8601 timestamp: {value!r}") from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def is_expired(expires_at: str | None, now: str | None = None) -> bool:
+    """True iff *expires_at* is set and not in the future. Strings compare
+    lexicographically because every stored timestamp is normalised to UTC."""
+    if not expires_at:
+        return False
+    return expires_at <= (now or _utcnow())
+
 
 @contextlib.contextmanager
 def connect(db_path: str | Path):
@@ -71,6 +129,22 @@ def connect(db_path: str | Path):
         conn.close()
 
 
+def _restrict_permissions(path: Path) -> None:
+    """Best-effort chmod 0600 on the store and its WAL sidecars.
+
+    The store holds digests, labels and actors — not raw secrets — so this is
+    hygiene rather than a security boundary. Best-effort because Windows has no
+    POSIX mode and some filesystems reject chmod; a failure here must not stop
+    an app from starting.
+    """
+    for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+        try:
+            if candidate.exists():
+                os.chmod(candidate, 0o600)
+        except OSError:
+            pass
+
+
 def ensure_schema(db_path: str | Path, *, create: bool) -> None:
     path = Path(db_path)
     if not path.exists():
@@ -85,54 +159,59 @@ def ensure_schema(db_path: str | Path, *, create: bool) -> None:
         # schema against a store written by a newer package and *then* refusing
         # to downgrade is the wrong order: the damage is already done by the
         # time the error is raised.
-        existing = conn.execute(
-            "SELECT version FROM _schema_version WHERE id = 1"
-        ).fetchone() if _table_exists(conn, "_schema_version") else None
+        existing = (
+            conn.execute("SELECT version FROM _schema_version WHERE id = 1").fetchone()
+            if _table_exists(conn, "_schema_version")
+            else None
+        )
         if existing is not None and existing["version"] > SCHEMA_VERSION:
             raise TokenError(
                 f"store at {path} is schema v{existing['version']}, newer than this "
                 f"package (v{SCHEMA_VERSION}). Refusing to downgrade — no DDL applied."
             )
         if existing is not None and existing["version"] < SCHEMA_VERSION:
-            # Future migrations land here as incremental steps (v1 -> v2, ...),
-            # NOT as edits to _DDL alone: CREATE ... IF NOT EXISTS never alters
-            # an existing table, so a bare DDL edit silently no-ops on adopted
-            # stores. v1 is the first version; there is nothing to migrate yet.
             _migrate(conn, existing["version"])
+        # executescript() implicitly COMMITs before it runs, so it is NOT inside
+        # the surrounding transaction — deliberate here, since DDL is idempotent
+        # and each migration step above is separately committed.
         conn.executescript(_DDL)
-        # INSERT OR IGNORE, not check-then-insert: two processes racing to
-        # initialise the same store would otherwise both see row is None and
-        # collide on the id=1 primary key.
+        # Upsert, not INSERT OR IGNORE: an upgraded store already has the id=1
+        # row, and a plain ignore would leave its version at the old value
+        # forever, re-running the migration on every start.
         conn.execute(
-            "INSERT OR IGNORE INTO _schema_version (id, version) VALUES (1, ?)",
+            "INSERT INTO _schema_version (id, version) VALUES (1, ?)"
+            " ON CONFLICT(id) DO UPDATE SET version = excluded.version",
             (SCHEMA_VERSION,),
         )
+    _restrict_permissions(path)
 
 
 def _migrate(conn, from_version: int) -> None:
-    """Incremental migration stub. v1 has no predecessors; raise on unknown."""
-    raise TokenError(
-        f"store is schema v{from_version}, package is v{SCHEMA_VERSION}: "
-        f"no migration path implemented"
-    )
+    """Incremental migration: bring *from_version* up to SCHEMA_VERSION.
+
+    Every step is guarded by a column/table check so a store that was created at
+    the current version — or one where a previous run half-applied — converges
+    rather than failing on a duplicate column.
+    """
+    if from_version < 2:
+        for column, ddl in _COLUMN_MIGRATIONS.items():
+            if not _column_exists(conn, "tokens", column):
+                conn.execute(ddl)
+    if from_version < 1:  # unreachable; guards a hand-edited version row
+        raise TokenError(f"store claims schema v{from_version}; no path from there")
 
 
 def _table_exists(conn, name: str) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone() is not None
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
 
 
-import threading
-from datetime import datetime, timezone
-
-from .hashing import handle_of, mint_token, token_hash, validate_handle, validate_role, validate_service
-
-MAX_LIMIT = 500
-# Bound for the per-process throttle maps. Thousands of tokens fleet-wide means
-# a few thousand entries max in practice; 5000 with oldest-first eviction keeps
-# memory flat if a scanner hammers random digests.
-TOUCH_MAP_MAX = 5000
+def _column_exists(conn, table: str, column: str) -> bool:
+    return any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})"))
 
 
 class NoSuchHandle(TokenError):
@@ -144,17 +223,22 @@ class AmbiguousHandle(TokenError):
     pass
 
 
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
 class Store:
     """Service-scoped row access. Every query carries `service`."""
 
-    def __init__(self, db_path, service: str):
+    def __init__(
+        self,
+        db_path,
+        service: str,
+        *,
+        max_limit: int = MAX_LIMIT,
+        touch_map_max: int = TOUCH_MAP_MAX,
+    ):
         validate_service(service)
         self.db_path = db_path
         self.service = service
+        self.max_limit = max_limit
+        self.touch_map_max = touch_map_max
         # Per-store, not module-global: a global throttle map keyed only on the
         # digest is shared across every service in the process and never shrinks.
         # Guarded by _touch_lock: adapters run threaded (Flask) and async workers
@@ -164,42 +248,63 @@ class Store:
         self._touch_lock = threading.Lock()
 
     def _touch_note(self, mapping: dict[str, float], key: str, now: float) -> None:
-        """Record `key` at `now`, evicting oldest-first when over TOUCH_MAP_MAX."""
+        """Record `key` at `now`, evicting oldest-first when over the bound.
+
+        pop-then-set, not a bare assignment: re-setting an existing key would
+        otherwise keep its original insertion position, so a key that just
+        re-emitted could be evicted as if it were the oldest.
+        """
+        mapping.pop(key, None)
         mapping[key] = now
-        while len(mapping) > TOUCH_MAP_MAX:
+        while len(mapping) > self.touch_map_max:
             mapping.pop(next(iter(mapping)), None)
 
-    def mint(self, role, label, created_by, priority=None, rate_limit=None):
+    def mint(self, role, label, created_by, priority=None, rate_limit=None, expires_at=None):
         validate_role(role)
         raw = mint_token(self.service, role)
         handle = self.insert_digest(
-            token_hash(raw), role, label, created_by, priority, rate_limit
+            token_hash(raw), role, label, created_by, priority, rate_limit, expires_at
         )
         return raw, handle
 
-    def insert_digest(self, digest, role, label, created_by, priority=None, rate_limit=None):
+    def insert_digest(
+        self, digest, role, label, created_by, priority=None, rate_limit=None, expires_at=None
+    ):
         """Plain INSERT — raises sqlite3.IntegrityError on any conflict.
 
         Deliberately NOT `INSERT OR IGNORE`: that would suppress the live-label
         unique-index violation as well as the primary-key one, silently dropping
         a colliding import instead of reporting it. Import idempotence comes from
-        the caller's find_any() check, not from the insert mode.
+        the         caller's find_any() check, not from the insert mode.
         """
         validate_role(role)
         with connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO tokens (token_sha256, service, label, role, priority,"
-                " rate_limit, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)",
-                (digest, self.service, label, role, priority, rate_limit, _utcnow(), created_by),
+                " rate_limit, expires_at, created_at, created_by)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    digest,
+                    self.service,
+                    label,
+                    role,
+                    priority,
+                    rate_limit,
+                    normalize_expires_at(expires_at),
+                    _utcnow(),
+                    created_by,
+                ),
             )
         return handle_of(digest)
 
-    def lookup_live(self, digest):
+    def lookup_live(self, digest, now: str | None = None):
+        """The auth lookup: service-scoped, not revoked, not expired."""
         with connect(self.db_path) as conn:
             return conn.execute(
                 "SELECT * FROM tokens WHERE token_sha256 = ? AND service = ?"
-                " AND revoked_at IS NULL",
-                (digest, self.service),
+                " AND revoked_at IS NULL"
+                " AND (expires_at IS NULL OR expires_at > ?)",
+                (digest, self.service, now or _utcnow()),
             ).fetchone()
 
     def find_any(self, digest):
@@ -209,17 +314,22 @@ class Store:
                 (digest, self.service),
             ).fetchone()
 
-    def list_rows(self, include_revoked=False, limit=MAX_LIMIT):
+    def list_rows(self, include_revoked=False, limit=None, label=None):
         # Clamp BOTH ends. A negative limit reaches SQLite as `LIMIT -1`, which
         # means "no limit" and returns every row, while `rows[:limit]` with a
         # negative slice silently drops the tail and miscomputes has_more.
-        limit = max(1, min(int(limit), MAX_LIMIT))
+        limit = self.max_limit if limit is None else int(limit)
+        limit = max(1, min(limit, self.max_limit))
         clause = "" if include_revoked else " AND revoked_at IS NULL"
+        params: list = [self.service]
+        if label is not None:
+            clause += " AND label = ?"
+            params.append(label)
         with connect(self.db_path) as conn:
             rows = conn.execute(
                 f"SELECT * FROM tokens WHERE service = ?{clause}"
                 " ORDER BY created_at, rowid LIMIT ?",
-                (self.service, limit + 1),
+                (*params, limit + 1),
             ).fetchall()
         return (rows[:limit], len(rows) > limit)
 
@@ -231,9 +341,7 @@ class Store:
                 (self.service, handle),
             ).fetchall()
         if not rows:
-            raise NoSuchHandle(
-                f"no token with handle {handle!r} in service {self.service!r}"
-            )
+            raise NoSuchHandle(f"no token with handle {handle!r} in service {self.service!r}")
         if len(rows) > 1:
             raise AmbiguousHandle(
                 f"handle {handle!r} matches {len(rows)} tokens in service "
@@ -259,7 +367,7 @@ class Store:
             changed = cur.rowcount == 1
         return self.resolve_handle(handle), changed
 
-    def update_row(self, handle, *, label=None, priority=..., rate_limit=...):
+    def update_row(self, handle, *, label=None, priority=..., rate_limit=..., expires_at=...):
         row = self.resolve_handle(handle)
         sets, params = [], []
         if label is not None:
@@ -271,6 +379,9 @@ class Store:
         if rate_limit is not ...:
             sets.append("rate_limit = ?")
             params.append(rate_limit)
+        if expires_at is not ...:
+            sets.append("expires_at = ?")
+            params.append(normalize_expires_at(expires_at))
         if sets:
             # `AND service = ?` like every other query in this class. Safe
             # without it only because token_sha256 is the primary key — an
@@ -278,8 +389,7 @@ class Store:
             params.extend([row["token_sha256"], self.service])
             with connect(self.db_path) as conn:
                 conn.execute(
-                    f"UPDATE tokens SET {', '.join(sets)}"
-                    " WHERE token_sha256 = ? AND service = ?",
+                    f"UPDATE tokens SET {', '.join(sets)} WHERE token_sha256 = ? AND service = ?",
                     params,
                 )
         return self.resolve_handle(handle)
@@ -305,7 +415,7 @@ class Store:
             )
 
     def live_label_exists(self, label, *, excluding_digest=None):
-        sql = ("SELECT 1 FROM tokens WHERE service = ? AND label = ? AND revoked_at IS NULL")
+        sql = "SELECT 1 FROM tokens WHERE service = ? AND label = ? AND revoked_at IS NULL"
         params = [self.service, label]
         if excluding_digest:
             sql += " AND token_sha256 != ?"

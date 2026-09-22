@@ -17,6 +17,7 @@ class TokenInfo:
     priority: int | None
     rate_limit: str | None
     token_sha256: str
+    expires_at: str | None = None
 
 
 @dataclass(frozen=True)

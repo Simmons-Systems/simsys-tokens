@@ -11,6 +11,7 @@ from simsys_tokens.integrations import simsys_sink   # logevent + metrics
 install_tokens(app, ..., event_sink=simsys_sink)
 ```
 """
+
 from __future__ import annotations
 
 # Counters are created once and cached: prometheus_client raises on duplicate

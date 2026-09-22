@@ -4,8 +4,7 @@ import re
 # Anchor on __file__, not the cwd: a relative path only resolves when pytest is
 # invoked from the repo root.
 ASSET = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "simsys_tokens" / "static" / "simsys-tokens.js"
+    pathlib.Path(__file__).resolve().parents[1] / "simsys_tokens" / "static" / "simsys-tokens.js"
 ).read_text()
 
 
@@ -35,11 +34,12 @@ def test_renders_nothing_on_403():
     # would put "Forbidden" in front of most of the department.
     # Assert the STRUCTURE, not that "403" appears somewhere in the file — a
     # substring check cannot distinguish this guard from a comment mentioning it.
-    assert re.search(
-        r"res\.status\s*===\s*403\s*\|\|\s*res\.status\s*===\s*401", ASSET
-    ), "the 403/401 early-return guard is missing or reshaped"
-    assert re.search(r"replaceChildren\(\);\s*\n\s*return;", ASSET), \
+    assert re.search(r"res\.status\s*===\s*403\s*\|\|\s*res\.status\s*===\s*401", ASSET), (
+        "the 403/401 early-return guard is missing or reshaped"
+    )
+    assert re.search(r"replaceChildren\(\);\s*\n\s*return;", ASSET), (
         "the guard must clear the element and return, rendering nothing"
+    )
 
 
 def test_the_raw_token_is_never_persisted():
@@ -77,3 +77,13 @@ def test_refresh_happens_before_the_token_panel_is_shown():
     refresh_at = ASSET.index("await this.refresh()")
     show_at = ASSET.index("this._showOnce(out.handle, out.token)")
     assert refresh_at < show_at, "_showOnce must come AFTER await this.refresh()"
+
+
+def test_api_path_is_configurable_via_attribute():
+    # A mount with api_prefix= needs the component to point at the same path.
+    assert 'getAttribute("api")' in ASSET
+    assert "this.api = this.getAttribute" in ASSET
+
+
+def test_expiry_state_is_rendered():
+    assert "_state(r)" in ASSET and "expired" in ASSET

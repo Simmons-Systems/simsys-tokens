@@ -1,4 +1,5 @@
 """Flask adapter. Translates requests; never decides policy."""
+
 from __future__ import annotations
 
 import json
@@ -14,13 +15,30 @@ from .store import Store, ensure_schema
 _ASSET = Path(__file__).parent / "static" / "simsys-tokens.js"
 
 
-def install_tokens(app, *, service, db_path, site_origin, session_resolver,
-                   import_tokens=None, event_sink=None) -> Store:
+def install_tokens(
+    app,
+    *,
+    service,
+    db_path,
+    site_origin,
+    session_resolver,
+    import_tokens=None,
+    event_sink=None,
+    emitter=None,
+    limits=None,
+    api_prefix="/api/tokens",
+    asset_path="/simsys-tokens.js",
+    auth_header="Authorization",
+) -> Store:
     ensure_schema(db_path, create=True)
     if event_sink is not None:
+        # Configures the process default, so a direct authenticate() call sees
+        # the same sink. Pass emitter= for a per-app emitter instead.
         events.set_sink(event_sink)
+    api = "/" + api_prefix.strip("/")
+    asset = "/" + asset_path.strip("/")
     store = Store(db_path, service)
-    endpoints = Endpoints(store, site_origin)
+    endpoints = Endpoints(store, site_origin, emitter=emitter, limits=limits)
     if import_tokens:
         import_entries(store, import_tokens)
 
@@ -33,7 +51,7 @@ def install_tokens(app, *, service, db_path, site_origin, session_resolver,
             identity = None
         return (
             identity,
-            request.headers.get("Authorization"),
+            request.headers.get(auth_header),
             request.headers.get("Origin"),
             request.headers.get("Referer"),
         )
@@ -62,16 +80,16 @@ def install_tokens(app, *, service, db_path, site_origin, session_resolver,
     # the view function's __name__, so registering `_list`/`_create` on the
     # ADOPTER's app collides with any view of the same name and raises
     # "View function mapping is overwriting an existing endpoint function".
-    @app.get("/api/tokens", endpoint="simsys_tokens_list")
+    @app.get(api, endpoint="simsys_tokens_list")
     def _list():
         identity, bearer, _, _ = _ctx()
         status, body = endpoints.handle_list(identity, bearer, request.args.to_dict())
         return jsonify(body), status
 
-    @app.post("/api/tokens", endpoint="simsys_tokens_create")
+    @app.post(api, endpoint="simsys_tokens_create")
     def _create():
         identity, bearer, origin, referer = _ctx()
-        refusal = endpoints.authz(identity, bearer)   # BEFORE decoding the body
+        refusal = endpoints.authz(identity, bearer)  # BEFORE decoding the body
         if refusal:
             return jsonify(refusal[1]), refusal[0]
         body, err = _body()
@@ -80,7 +98,13 @@ def install_tokens(app, *, service, db_path, site_origin, session_resolver,
         status, out = endpoints.handle_create(identity, bearer, body, origin, referer)
         return jsonify(out), status
 
-    @app.patch("/api/tokens/<handle>", endpoint="simsys_tokens_patch")
+    @app.get(f"{api}/<handle>", endpoint="simsys_tokens_get")
+    def _get(handle):
+        identity, bearer, _, _ = _ctx()
+        status, out = endpoints.handle_get(identity, bearer, handle)
+        return jsonify(out), status
+
+    @app.patch(f"{api}/<handle>", endpoint="simsys_tokens_patch")
     def _patch(handle):
         identity, bearer, origin, referer = _ctx()
         refusal = endpoints.authz(identity, bearer)
@@ -92,14 +116,14 @@ def install_tokens(app, *, service, db_path, site_origin, session_resolver,
         status, out = endpoints.handle_patch(identity, bearer, handle, body, origin, referer)
         return jsonify(out), status
 
-    @app.delete("/api/tokens/<handle>", endpoint="simsys_tokens_delete")
+    @app.delete(f"{api}/<handle>", endpoint="simsys_tokens_delete")
     def _delete(handle):
         identity, bearer, origin, referer = _ctx()
         status, body = endpoints.handle_delete(identity, bearer, handle, origin, referer)
         return jsonify(body), status
 
-    @app.get("/simsys-tokens.js", endpoint="simsys_tokens_asset")
-    def _asset():
+    @app.get(asset, endpoint="simsys_tokens_asset")
+    def _asset_route():
         return Response(_ASSET.read_text(), mimetype="application/javascript")
 
     return store

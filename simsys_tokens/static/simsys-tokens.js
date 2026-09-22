@@ -1,6 +1,9 @@
 // simsys-tokens: list / create / revoke, in the host page's own styling.
 // Light DOM by design so the app's stylesheet can reach in. Ships no colours:
 // tier 1 inherits the page cascade, tier 2 sets the --st-* custom properties.
+//
+// The API path is read from the `api` attribute so a mount with a custom
+// api_prefix works: <simsys-tokens service="x" api="/internal/tokens">.
 const CSS = `
 simsys-tokens { display:block; color:var(--st-fg,currentColor);
   background:var(--st-bg,transparent); font:var(--st-font,inherit); }
@@ -23,6 +26,7 @@ class SimsysTokens extends HTMLElement {
       document.head.appendChild(s);
     }
     this.service = this.getAttribute("service") || "";
+    this.api = this.getAttribute("api") || "/api/tokens";
     // .catch() because connectedCallback cannot await: without it a rejection
     // here is an unhandled promise rejection with no visible symptom.
     this.refresh().catch(() => {
@@ -36,7 +40,7 @@ class SimsysTokens extends HTMLElement {
       // include=revoked: the table renders a "revoked" status column, and the
       // roster's whole point is "what existed and when did we kill it". Without
       // this the component can never show a revoked row it just created.
-      res = await fetch("/api/tokens?include=revoked",
+      res = await fetch(`${this.api}?include=revoked`,
                         { credentials: "same-origin" });
     } catch (err) {
       // Distinguish "cannot reach the server" from the deliberate silence below.
@@ -62,17 +66,26 @@ class SimsysTokens extends HTMLElement {
 
   _msg(text) { const p = document.createElement("p"); p.textContent = text; return p; }
 
+  _state(r) {
+    if (r.revoked_at) return "revoked";
+    if (r.expires_at && r.expires_at <= new Date().toISOString()) return "expired";
+    return "live";
+  }
+
   _form() {
     const form = document.createElement("form");
     form.innerHTML =
       '<input name="label" placeholder="label, e.g. my-scout" required>' +
-      '<input name="role" placeholder="role" required> <button>Create</button>';
+      '<input name="role" placeholder="role" required>' +
+      '<input name="expires_at" placeholder="expires at (ISO-8601, optional)">' +
+      ' <button>Create</button>';
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = { label: form.label.value, role: form.role.value };
+      if (form.expires_at.value) body.expires_at = form.expires_at.value;
       let res, out;
       try {
-        res = await fetch("/api/tokens", {
+        res = await fetch(this.api, {
           method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
@@ -110,13 +123,13 @@ class SimsysTokens extends HTMLElement {
   _table(rows) {
     const t = document.createElement("table");
     t.innerHTML =
-      "<thead><tr><th>Label</th><th>Role</th><th>Created</th><th>Last used</th>" +
-      "<th>Status</th><th></th></tr></thead>";
+      "<thead><tr><th>Label</th><th>Role</th><th>Created</th><th>Expires</th>" +
+      "<th>Last used</th><th>Status</th><th></th></tr></thead>";
     const body = document.createElement("tbody");
     for (const r of rows) {
       const tr = document.createElement("tr");
-      for (const v of [r.label, r.role, r.created_at, r.last_used_at || "never",
-                       r.revoked_at ? "revoked" : "live"]) {
+      for (const v of [r.label, r.role, r.created_at, r.expires_at || "never",
+                       r.last_used_at || "never", this._state(r)]) {
         const td = document.createElement("td");
         td.textContent = v;
         tr.appendChild(td);
@@ -127,7 +140,7 @@ class SimsysTokens extends HTMLElement {
         b.textContent = "Revoke";
         b.addEventListener("click", async () => {
           try {
-            await fetch(`/api/tokens/${r.handle}`,
+            await fetch(`${this.api}/${r.handle}`,
                         { method: "DELETE", credentials: "same-origin" });
           } catch (err) {
             this.prepend(this._msg("Revoke failed — could not reach the service."));

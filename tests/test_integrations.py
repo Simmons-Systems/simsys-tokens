@@ -3,6 +3,7 @@
 These require the ``logevent`` / ``metrics`` extras, which CI installs. They are
 skipped if the extras are absent so the suite stays green for a core-only install.
 """
+
 import io
 import json
 
@@ -51,6 +52,8 @@ def test_simsys_metrics_sink_counts_auth_failures_by_reason():
 def test_simsys_sink_runs_both_halves(monkeypatch):
     calls = []
     monkeypatch.setattr(integrations, "simsys_event_sink", lambda e, f: calls.append(("log", e)))
-    monkeypatch.setattr(integrations, "simsys_metrics_sink", lambda e, f: calls.append(("metric", e)))
+    monkeypatch.setattr(
+        integrations, "simsys_metrics_sink", lambda e, f: calls.append(("metric", e))
+    )
     integrations.simsys_sink("token.revoked", {"service": "demo"})
     assert calls == [("log", "token.revoked"), ("metric", "token.revoked")]

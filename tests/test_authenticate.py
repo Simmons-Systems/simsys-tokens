@@ -62,14 +62,14 @@ def test_overlong_bearer_is_rejected_without_hashing(store, monkeypatch):
     import simsys_tokens.core as core
 
     monkeypatch.setattr(
-        core, "token_hash", lambda raw: (_ for _ in ()).throw(
-            AssertionError("hash called on overlong input"))
+        core,
+        "token_hash",
+        lambda raw: (_ for _ in ()).throw(AssertionError("hash called on overlong input")),
     )
     assert authenticate(store, "Bearer " + "a" * 10000) is None
 
 
 def test_touch_map_is_bounded(store):
-    import simsys_tokens.core as core
 
     raw, _ = store.mint("agent", "scout", "cli:leon@dev")
     # Fill past the cap with junk keys, then authenticate once: the map must

@@ -1,11 +1,12 @@
 """Drop-in API-token store, auth and management surface for in-house web apps."""
 
-from .core import authenticate
+from .core import Limits, authenticate
 from .errors import TokenError
+from .events import Emitter
 from .events import set_sink as set_event_sink
 from .models import SessionIdentity, TokenInfo
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def install_tokens(app, **kwargs):
@@ -17,23 +18,27 @@ def install_tokens(app, **kwargs):
     """
     framework = kwargs.pop("framework", None)
     if framework in ("fastapi", "flask"):
-        from . import fastapi as _fa, flask as _fl
+        from . import fastapi as _fa
+        from . import flask as _fl
+
         return (_fa if framework == "fastapi" else _fl).install_tokens(app, **kwargs)
     if framework is not None:
-        raise TypeError(
-            f"unsupported framework={framework!r}; expected 'fastapi' or 'flask'"
-        )
+        raise TypeError(f"unsupported framework={framework!r}; expected 'fastapi' or 'flask'")
     try:
         from fastapi.applications import FastAPI as _FastAPI
+
         if isinstance(app, _FastAPI):
             from .fastapi import install_tokens as _install
+
             return _install(app, **kwargs)
     except ImportError:
         pass
     try:
         from flask import Flask as _Flask
+
         if isinstance(app, _Flask):
             from .flask import install_tokens as _install
+
             return _install(app, **kwargs)
     except ImportError:
         pass
@@ -44,9 +49,11 @@ def install_tokens(app, **kwargs):
     module = app.__class__.__module__
     if module.startswith("fastapi"):
         from .fastapi import install_tokens as _install
+
         return _install(app, **kwargs)
     if module.startswith("flask"):
         from .flask import install_tokens as _install
+
         return _install(app, **kwargs)
     raise TypeError(
         f"unsupported app type {module}.{app.__class__.__name__}; "
@@ -56,6 +63,13 @@ def install_tokens(app, **kwargs):
 
 
 __all__ = [
-    "__version__", "authenticate", "install_tokens", "set_event_sink",
-    "SessionIdentity", "TokenInfo", "TokenError",
+    "__version__",
+    "authenticate",
+    "install_tokens",
+    "set_event_sink",
+    "Emitter",
+    "Limits",
+    "SessionIdentity",
+    "TokenInfo",
+    "TokenError",
 ]

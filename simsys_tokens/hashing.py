@@ -4,6 +4,7 @@ The preimage is the FULL token string, not its hex tail. Getting this wrong is
 silent: a mismatched preimage yields a well-formed digest that simply never
 matches, so every token fails auth and every ownership check says "not yours".
 """
+
 from __future__ import annotations
 
 import hashlib

@@ -4,6 +4,7 @@ Deliberately has NO stylesheet of its own. Whatever you see is tier 1: the
 component inheriting a bare page's cascade. If it is ugly here, it is ugly on
 every adopter that does not theme it.
 """
+
 import tempfile
 from pathlib import Path
 
@@ -27,7 +28,7 @@ install_tokens(
 def demo():
     return (
         '<!doctype html><meta charset="utf-8"><title>simsys-tokens tier 1</title>'
-        '<h1>Tier 1 — no app CSS at all</h1>'
+        "<h1>Tier 1 — no app CSS at all</h1>"
         '<script type="module" src="/simsys-tokens.js"></script>'
         '<simsys-tokens service="demo"></simsys-tokens>'
     )

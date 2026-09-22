@@ -27,11 +27,14 @@ def test_neither_header_fails_closed():
     assert check_origin(SITE, None, None) is False
 
 
-@pytest.mark.parametrize("near", [
-    "https://tokens.example.com.evil.example",
-    "http://tokens.example.com",
-    "https://tokens.example.com:8443",
-])
+@pytest.mark.parametrize(
+    "near",
+    [
+        "https://tokens.example.com.evil.example",
+        "http://tokens.example.com",
+        "https://tokens.example.com:8443",
+    ],
+)
 def test_near_miss_origins_fail(near):
     assert check_origin(SITE, near, None) is False
 

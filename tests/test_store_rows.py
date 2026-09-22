@@ -1,7 +1,7 @@
 import pytest
 
 from simsys_tokens.hashing import token_hash
-from simsys_tokens.store import AmbiguousHandle, NoSuchHandle, Store, ensure_schema
+from simsys_tokens.store import NoSuchHandle, Store, ensure_schema
 
 
 @pytest.fixture()
@@ -83,6 +83,7 @@ def test_connections_do_not_leak(store, tmp_path):
     for _ in range(200):
         store.list_rows()
     import os
+
     assert len(os.listdir(f"/proc/{os.getpid()}/fd")) < 200
 
 
@@ -108,3 +109,64 @@ def test_a_revoked_label_frees_up(store):
     _, handle = store.mint("agent", "scout", "cli:leon@dev")
     store.revoke(handle, "session:leon")
     assert store.live_label_exists("scout") is False
+
+
+def test_list_rows_filters_by_label(store):
+    store.mint("agent", "alpha", "cli:leon@dev")
+    store.mint("agent", "beta", "cli:leon@dev")
+    rows, _ = store.list_rows(label="alpha")
+    assert [r["label"] for r in rows] == ["alpha"]
+    rows, _ = store.list_rows(label="nope")
+    assert rows == []
+
+
+def test_mint_with_expires_at_is_not_live(store):
+    from simsys_tokens.store import is_expired
+
+    raw, handle = store.mint("agent", "old", "cli:leon@dev", expires_at="2000-01-01T00:00:00+00:00")
+    assert store.lookup_live(token_hash(raw)) is None
+    row = store.find_any(token_hash(raw))
+    assert row is not None and row["revoked_at"] is None
+    assert is_expired(row["expires_at"]) is True
+
+
+def test_a_future_expiry_still_authenticates(store):
+    raw, _ = store.mint("agent", "later", "cli:leon@dev", expires_at="2999-01-01T00:00:00+00:00")
+    assert store.lookup_live(token_hash(raw)) is not None
+
+
+@pytest.mark.parametrize("bad", ["not a time", "", 123, "2026-13-45T00:00:00"])
+def test_bad_expires_at_is_rejected(store, bad):
+    with pytest.raises(ValueError):
+        store.mint("agent", "x", "cli:leon@dev", expires_at=bad)
+
+
+def test_expires_at_is_normalised_to_utc(store):
+    raw, _ = store.mint("agent", "tz", "cli:leon@dev", expires_at="2999-01-01T00:00:00-05:00")
+    assert store.find_any(token_hash(raw))["expires_at"] == "2999-01-01T05:00:00+00:00"
+
+
+def test_naive_expiry_is_assumed_utc(store):
+    raw, _ = store.mint("agent", "naive", "cli:leon@dev", expires_at="2999-01-01T00:00:00")
+    assert store.find_any(token_hash(raw))["expires_at"] == "2999-01-01T00:00:00+00:00"
+
+
+def test_touch_eviction_refreshes_recency(store):
+    # A re-emitted key must move to the newest end, or it can be evicted as if
+    # it were the oldest. pop-then-set in _touch_note is what fixes that.
+    store.touch_map_max = 2
+    store._touch_note(store.last_touch, "a", 1.0)
+    store._touch_note(store.last_touch, "b", 2.0)
+    store._touch_note(store.last_touch, "a", 3.0)  # refresh "a"
+    store._touch_note(store.last_touch, "c", 4.0)  # must evict "b", not "a"
+    assert list(store.last_touch) == ["a", "c"]
+
+
+def test_max_limit_is_per_store(tmp_path):
+    db = tmp_path / "tokens.db"
+    ensure_schema(db, create=True)
+    small = Store(db, "demo", max_limit=2)
+    for i in range(3):
+        small.mint("agent", f"t{i}", "cli:leon@dev")
+    rows, has_more = small.list_rows(limit=999)
+    assert len(rows) == 2 and has_more is True

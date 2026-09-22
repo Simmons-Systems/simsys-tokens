@@ -68,9 +68,7 @@ def test_a_colliding_live_label_is_skipped_and_reported(store):
 
 
 def test_declaring_both_forms_is_rejected(store):
-    report = import_entries(
-        store, [{"role": "agent", "key": RAW, "key_sha256": token_hash(RAW)}]
-    )
+    report = import_entries(store, [{"role": "agent", "key": RAW, "key_sha256": token_hash(RAW)}])
     assert report.imported == 0 and "exactly one" in report.rejected[0][1]
 
 

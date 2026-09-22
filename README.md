@@ -8,6 +8,8 @@ operator-gated management endpoints, and a drop-in web component.
   shown once at creation and is never persisted or logged.
 - **Revoke is immediate.** One indexed lookup per authenticated request — no
   cache to invalidate, no restart.
+- **Optional expiry.** Pass `expires_at` at creation (or set it later); an
+  expired token stops authenticating and reports `reason="expired"`.
 - **Operator-gated management.** Listing, minting, relabelling and revoking
   require an interactive session carrying `is_operator`. Bearer tokens are
   refused at every role, so a leaked token cannot mint more tokens.
@@ -30,15 +32,17 @@ from simsys_tokens import SessionIdentity, install_tokens
 
 app = FastAPI()
 
+
 def session_identity(request):
-    user = resolve_my_session(request)          # your own auth
+    user = resolve_my_session(request)  # your own auth
     return SessionIdentity(user=user, is_operator=user.is_admin) if user else None
+
 
 install_tokens(
     app,
     service="myapp",
     db_path="/var/lib/myapp/tokens.db",
-    site_origin="https://myapp.example.com",    # exact origin, for CSRF
+    site_origin="https://myapp.example.com",  # exact origin, for CSRF
     session_resolver=session_identity,
 )
 ```
@@ -54,11 +58,12 @@ Then drop the component on any page:
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/tokens` | Live rows by default; `?include=revoked` adds the rest. Never returns a secret or the full digest. |
-| `POST` | `/api/tokens` | `{label, role, priority?, rate_limit?}` → `{handle, token}`. `token` is shown **once**. `409` on a live label collision. |
-| `PATCH` | `/api/tokens/{handle}` | `{label?, priority?, rate_limit?}`. `role` is not mutable — a role change is a fresh mint. Allowed on a revoked row. |
+| `GET` | `/api/tokens` | Live rows by default; `?include=revoked` adds the rest, `?label=` filters, `?limit=` bounds. Never returns a secret or the full digest. |
+| `POST` | `/api/tokens` | `{label, role, priority?, rate_limit?, expires_at?}` → `{handle, token}`. `token` is shown **once**. `409` on a live label collision. |
+| `GET` | `/api/tokens/{handle}` | One row's public metadata, or `404`. |
+| `PATCH` | `/api/tokens/{handle}` | `{label?, priority?, rate_limit?, expires_at?}`. `role` is not mutable — a role change is a fresh mint. Allowed on a revoked row. |
 | `DELETE` | `/api/tokens/{handle}` | Soft revoke. A second `DELETE` is a no-op and does not rewrite `revoked_by`. |
-| `GET` | `/simsys-tokens.js` | The component asset. Deliberately outside `/api/tokens/*`. |
+| `GET` | `/simsys-tokens.js` | The component asset. Deliberately outside the API prefix. |
 
 Status codes are evaluated **credentials → CSRF → validation → existence**, so an
 unauthenticated caller cannot probe which handles exist (`401`, never `404`).
@@ -76,12 +81,49 @@ unauthenticated caller cannot probe which handles exist (`401`, never `404`).
 
 ```bash
 simsys-tokens mint   --init --service myapp --role admin --label bootstrap
+simsys-tokens mint   --service myapp --role agent --label scout --expires-at 2027-01-01T00:00:00+00:00
 simsys-tokens list   --service myapp [--json]
-simsys-tokens revoke --service myapp --handle <16-hex>
+simsys-tokens revoke --service myapp --handle <16-hex> [--json]
+echo '<token>' | simsys-tokens verify --service myapp     # live | expired | revoked | unknown
 ```
 
 `--db` defaults to `/var/lib/<service>/tokens.db`. Only `mint --init` creates the
-store; `list` and `revoke` fail loudly rather than create an empty one.
+store; `list`, `revoke` and `verify` fail loudly rather than create an empty one.
+`verify` accepts the token on stdin (so it does not land in shell history) and
+exits 0 only for a live token, so it is usable in a script.
+
+## Configuration
+
+Every parameter is optional except the four required ones:
+
+```python
+install_tokens(
+    app,
+    service="myapp",  # also the token prefix; ^[a-z0-9_]{1,32}$
+    db_path="/var/lib/myapp/tokens.db",
+    site_origin="https://myapp.example.com",  # exact origin, for CSRF
+    session_resolver=session_identity,
+    import_tokens=None,  # existing config tokens to import
+    event_sink=None,  # reconfigures the process default sink
+    emitter=None,  # a per-app Emitter (see below)
+    limits=Limits(
+        last_used_throttle=60, auth_failed_throttle=60, max_raw_len=256, max_label_len=64
+    ),
+    api_prefix="/api/tokens",
+    asset_path="/simsys-tokens.js",
+    auth_header="Authorization",
+)
+```
+
+- **`api_prefix` / `asset_path`** — mount somewhere else when `/api/tokens` is
+  taken. Pass the same prefix to the component:
+  `<simsys-tokens service="myapp" api="/internal/tokens">`.
+- **`auth_header`** — read the bearer from a different header if a gateway
+  normalises `Authorization`.
+- **`limits`** — throttle windows, the maximum raw token length hashed on the
+  auth path, and the label length cap.
+- **`emitter`** — an `Emitter(sink=…)` of your own. Use it when one process hosts
+  more than one service, so their events do not share the process default.
 
 ## Adopting an existing static credential
 
