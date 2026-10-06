@@ -176,9 +176,9 @@ pip install 'simsys-tokens[simsys] @ git+https://github.com/Simmons-Systems/sims
 
 ```python
 from simsys_tokens import install_tokens
-from simsys_tokens.integrations import simsys_event_sink, simsys_metrics
+from simsys_tokens.integrations import simsys_sink  # logevent + metrics
 
-install_tokens(app, ..., event_sink=simsys_event_sink, metrics=simsys_metrics)
+install_tokens(app, ..., event_sink=simsys_sink)
 ```
 
 `service` and `role` slugs must match `^[a-z0-9_]{1,32}$` — **hyphens are
