@@ -26,11 +26,24 @@ schema, so a single `tokens.db` is readable by either runtime:
 
 ## Install
 
+`simsys-tokens` is **not published on PyPI**. Python releases are git tags
+(`python-v*`) on this repository, so install from the tag:
+
 ```bash
-pip install simsys-tokens              # core, stdlib only
-pip install 'simsys-tokens[fastapi]'   # + FastAPI adapter
-pip install 'simsys-tokens[flask]'     # + Flask adapter
+# core, stdlib only
+pip install 'simsys-tokens @ git+https://github.com/Simmons-Systems/simsys-tokens@python-v0.2.0'
+# + FastAPI adapter
+pip install 'simsys-tokens[fastapi] @ git+https://github.com/Simmons-Systems/simsys-tokens@python-v0.2.0'
+# + Flask adapter
+pip install 'simsys-tokens[flask] @ git+https://github.com/Simmons-Systems/simsys-tokens@python-v0.2.0'
 ```
+
+The same string works as a line in `requirements.txt` or a `pyproject.toml`
+dependency. Pin a `python-v*` tag rather than a branch, and do not use a
+`node-v*` tag: those release the Node package that lives in `node/`.
+
+> Do **not** run a bare `pip install simsys-tokens`. The name is unclaimed on
+> PyPI, so whatever answers to it there is not this package.
 
 ## Quickstart
 
@@ -135,7 +148,8 @@ install_tokens(
 
 ## Adopting an existing static credential
 
-1. `pip install simsys-tokens` (plus your framework extra).
+1. Install the package from its release tag, with your framework extra — see
+   [Install](#install).
 2. Call `install_tokens(...)` at startup.
 3. Hand your existing config tokens to `import_tokens=` — one entry per value,
    with either `key` (raw) or `key_sha256` (precomputed digest). Import is
@@ -156,7 +170,8 @@ Events and metrics are both **injectable callables** — wire your own backend, 
 take the extras:
 
 ```bash
-pip install 'simsys-tokens[simsys]'   # simsys-logevent + simsys-metrics
+# simsys-logevent + simsys-metrics (both of those are on PyPI)
+pip install 'simsys-tokens[simsys] @ git+https://github.com/Simmons-Systems/simsys-tokens@python-v0.2.0'
 ```
 
 ```python

@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the token format and the store schema with the Python package, so a single store
   file is readable by either runtime.
 
+### Security
+- The README told adopters to `pip install simsys-tokens`, but the package is not
+  on PyPI and the name is unclaimed there, so anyone could register it and those
+  installs would fetch their code. The install instructions now pin the
+  `python-v0.2.0` git tag (`simsys-tokens @ git+https://…@python-v0.2.0`), and
+  the README warns against a bare `pip install simsys-tokens`.
+
 ## [0.2.0]
 
 ### Added
